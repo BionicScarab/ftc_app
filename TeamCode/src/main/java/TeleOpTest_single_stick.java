@@ -1,108 +1,141 @@
-
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorController;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.util.Range;
+import com.sun.tools.javac.tree.DCTree;
 
 import static com.qualcomm.robotcore.hardware.DcMotor.RunMode.RESET_ENCODERS;
 
 @TeleOp(name="NormalOpMode")
 public class TeleOpTest_single_stick extends OpMode
 {
-    private DcMotor Motor_left = null;
-    private DcMotor Motor_right = null;
+    private DcMotor leftDrive  = null;
+    private DcMotor rightDrive = null;
 
-    private DcMotor arm_base = null;
-    private DcMotor arm_shovel = null;
-
-    private int ANDYMARK_FULL_REV = 1120;
-
+    private DcMotor armBase = null;
+    private DcMotor shovel = null;
     private DcMotor collector = null;
 
-    public void setPowerChassis(double leftPower, double rightPower)    {
-        Motor_left.setPower(leftPower);
-        Motor_right.setPower(rightPower);
-    }
+    private int TETRIX_MOTOR_REV = 1440;
+    private int ANDYMARK_MOTOR_REV = 1120;
 
-    public void updateShovel()  {
-        boolean isCollecting = false;
-        boolean isDeployed = false;
+    private long startTimeCollector   = 0;
+    private long currentTimeCollector = 0;
+    private long deltaTimeCollector   = 0;
+    private boolean isCollecting = false;
 
-        if (gamepad1.a)
-            isCollecting = !isCollecting;
-        if (isCollecting == true)
-            collector.setPower(1);
-        else
-            collector.setPower(0);
+    private boolean isDeployed = false;
+    private long startTimeDeployer = 0;
+    private long currentTimeDeployer = 0;
+    private long deltaTimeDeployer = 0;
 
-        if(gamepad1.b)
-            isDeployed = !isDeployed;
-
-        arm_shovel.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        if (isDeployed) {
-            arm_shovel.setTargetPosition(-ANDYMARK_FULL_REV / 2);
+    public long pow(int x, int y)   {
+        if (y == 0) {
+            return (1);
+        }
+        else if (y == 1){
+            return (x);
         }
         else    {
-            arm_shovel.setTargetPosition(ANDYMARK_FULL_REV / 2);
+            return (x * pow(x, y - 1));
         }
-        arm_shovel.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-
-        double move_arm = -gamepad1.right_stick_y;
-
-        arm_base.setPower(move_arm);
     }
 
-    public void move()   {
-        boolean front = true;
+    public void move()  {
+        double  drive = -gamepad1.left_stick_y;
+        double  turn  = -gamepad1.left_stick_x / 2;
 
-        if (gamepad1.x)
-            front = !front;
+        double  leftPower  = Range.clip(drive + turn, -1, 1);
+        double  rightPower = Range.clip(drive - turn, -1, 1);
 
-        double drive = -gamepad1.left_stick_y;
-        double turn  =  gamepad1.left_stick_x;
+        leftDrive.setPower(leftPower);
+        rightDrive.setPower(rightPower);
+    }
 
-        double leftPower = Range.clip(drive + turn, -1.00, 1.00);
-        double rightPower = Range.clip(drive - turn, -1.00, 1.00);
+    public void updateArm() {
+        double  moveArm      = -gamepad1.right_stick_y;
+        long    divideToSec  = pow(10, 9);
+        //double  shovelPower  = (gamepad1.left_trigger - gamepad1.right_trigger)/2;
 
-        if (front == true)
-            setPowerChassis(leftPower, rightPower);
-        else
-            setPowerChassis(rightPower, leftPower);
+        armBase.setPower(moveArm);
+        //shovel.setPower(shovelPower);
+
+        currentTimeCollector = System.nanoTime();
+        deltaTimeCollector= (currentTimeCollector - startTimeCollector) / (divideToSec / 10);
+        if (gamepad1.a && deltaTimeCollector > 5) {
+            startTimeCollector = System.nanoTime();
+            if (isCollecting)   {
+                collector.setPower(1);
+                isCollecting = false;
+            }
+            else if (!isCollecting) {
+                collector.setPower(0);
+                isCollecting = true;
+            }
+        }
+
+        currentTimeDeployer = System.nanoTime();
+        deltaTimeDeployer = (currentTimeDeployer - startTimeDeployer) / (divideToSec / 10);
+        if (gamepad1.x && deltaTimeDeployer > 5)    {
+            startTimeDeployer = System.nanoTime();
+            if (isDeployed) {
+                isDeployed = false;
+                shovel.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+                shovel.setTargetPosition(-TETRIX_MOTOR_REV / 6);
+                shovel.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+                while (shovel.isBusy())
+                    shovel.setPower(1);
+                shovel.setPower(0);
+            }
+            else    {
+                isDeployed = true;
+                shovel.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+                shovel.setTargetPosition(TETRIX_MOTOR_REV / 6);
+                shovel.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+                while (shovel.isBusy())
+                    shovel.setPower(1);
+                shovel.setPower(0);
+            }
+        }
     }
 
     @Override
     public void init()  {
         telemetry.addData("Status", "Initialized\n");
-        telemetry.addData("Controls", "Left stick to move chassis\nRight stick to control base arm\nB to deploy\nA to collect\nX to switch front");
+        startTimeCollector   = System.nanoTime();
+        currentTimeCollector = System.nanoTime();
+        startTimeDeployer = System.nanoTime();
+        currentTimeDeployer = System.nanoTime();
 
-        Motor_left  = hardwareMap.get(DcMotor.class, "left_drive");
-        Motor_right = hardwareMap.get(DcMotor.class, "right_drive");
+        leftDrive  = hardwareMap.get(DcMotor.class, "left_drive");
+        rightDrive = hardwareMap.get(DcMotor.class, "right_drive");
+        armBase    = hardwareMap.get(DcMotor.class, "arm_base");
+        shovel     = hardwareMap.get(DcMotor.class, "shovel");
+        collector  = hardwareMap.get(DcMotor.class, "collector");
 
-        arm_base = hardwareMap.get(DcMotor.class, "arm1");
-        arm_shovel = hardwareMap.get(DcMotor.class, "arm2");
+        leftDrive.setDirection(DcMotor.Direction.FORWARD);
+        rightDrive.setDirection(DcMotor.Direction.REVERSE);
+        armBase.setDirection(DcMotor.Direction.FORWARD);
+        shovel.setDirection(DcMotor.Direction.FORWARD);
+        collector.setDirection(DcMotor.Direction.REVERSE);
 
-        collector = hardwareMap.get(DcMotor.class, "collector");
-
-        Motor_left.setDirection(DcMotor.Direction.FORWARD);
-        Motor_right.setDirection(DcMotor.Direction.REVERSE);
-
-        arm_base.setDirection(DcMotor.Direction.FORWARD);
-        arm_shovel.setDirection(DcMotor.Direction.FORWARD);
-        arm_shovel.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-
-        collector.setDirection(DcMotor.Direction.FORWARD);
+        armBase.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        shovel.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
     }
 
     @Override
     public void loop()  {
         move();
-
-        updateShovel();
+        updateArm();
+        telemetry.addLine("\n");
+        telemetry.addData("deltaTime: ", deltaTimeCollector / 10.0);
     }
 
     @Override
     public void stop()  {
+        telemetry.clear();
+        telemetry.addData("Status: ", "Stopped");
     }
 }
